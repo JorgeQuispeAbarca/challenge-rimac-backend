@@ -1,19 +1,179 @@
-# "org" ensures this Service is used with the correct Serverless Framework Access Key.
-org: jaqa973
-# "service" is the name of this project. This will also be added to your AWS resource names.
 service: challenge-rimac-backend
+frameworkVersion: "4"
 
 provider:
   name: aws
   runtime: nodejs20.x
-  # Uncomment to easily set up a custom domain. Read the docs for more details:
-  # https://www.serverless.com/framework/docs/providers/aws/guide/domains
-  # domain: api.example.com
+  region: us-east-1
+  httpApi:
+    cors: true
+  environment:
+    APPOINTMENTS_TABLE: Appointments
+    APPOINTMENTS_TOPIC_ARN: !Ref AppointmentsTopic
+    EVENT_BUS_NAME: default
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:Query
+            - dynamodb:GetItem
+          Resource:
+            - !GetAtt AppointmentsTable.Arn
+            - !Sub "${AppointmentsTable.Arn}/index/*"
+        - Effect: Allow
+          Action: sns:Publish
+          Resource: !Ref AppointmentsTopic
+        - Effect: Allow
+          Action:
+            - sqs:ReceiveMessage
+            - sqs:DeleteMessage
+            - sqs:GetQueueAttributes
+            - sqs:SendMessage
+          Resource:
+            - !GetAtt SqsPE.Arn
+            - !GetAtt SqsCL.Arn
+            - !GetAtt SqsStatus.Arn
+        - Effect: Allow
+          Action: events:PutEvents
+          Resource: "*"
 
 functions:
-  hello:
-    handler: handler.hello
+  appointment:
+    handler: src/functions/appointment/handler.handler
     events:
       - httpApi:
-          path: /
-          method: get
+          method: POST
+          path: /appointments
+      - httpApi:
+          method: GET
+          path: /appointments/{insuredId}
+      - sqs:
+          arn: !GetAtt SqsStatus.Arn
+          batchSize: 10
+
+  appointment_pe:
+    handler: src/functions/appointment_pe/handler.handler
+    events:
+      - sqs:
+          arn: !GetAtt SqsPE.Arn
+          batchSize: 10
+          maximumBatchingWindow: 5
+
+  appointment_cl:
+    handler: src/functions/appointment_cl/handler.handler
+    events:
+      - sqs:
+          arn: !GetAtt SqsCL.Arn
+          batchSize: 10
+          maximumBatchingWindow: 5
+
+resources:
+  Resources:
+    AppointmentsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: Appointments
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: appointmentId, AttributeType: S }
+          - { AttributeName: createdAt,     AttributeType: S }
+          - { AttributeName: insuredId,     AttributeType: S }
+        KeySchema:
+          - { AttributeName: appointmentId, KeyType: HASH }
+          - { AttributeName: createdAt,     KeyType: RANGE }
+        GlobalSecondaryIndexes:
+          - IndexName: GSI1
+            KeySchema:
+              - { AttributeName: insuredId, KeyType: HASH }
+              - { AttributeName: createdAt, KeyType: RANGE }
+            Projection: { ProjectionType: ALL }
+
+    AppointmentsTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: appointments-topic
+
+    # ⬇️ Logical IDs alfanuméricos (nombres reales conservan SQS_PE / SQS_CL / SQS_STATUS)
+    SqsPE:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: SQS_PE
+
+    SqsCL:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: SQS_CL
+
+    SqsStatus:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: SQS_STATUS
+
+    SubPE:
+      Type: AWS::SNS::Subscription
+      Properties:
+        TopicArn: !Ref AppointmentsTopic
+        Protocol: sqs
+        Endpoint: !GetAtt SqsPE.Arn
+        FilterPolicy: { countryISO: ["PE"] }
+
+    SubCL:
+      Type: AWS::SNS::Subscription
+      Properties:
+        TopicArn: !Ref AppointmentsTopic
+        Protocol: sqs
+        Endpoint: !GetAtt SqsCL.Arn
+        FilterPolicy: { countryISO: ["CL"] }
+
+    SqsPEPolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues: [ !Ref SqsPE ]
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal: { Service: sns.amazonaws.com }
+              Action: sqs:SendMessage
+              Resource: !GetAtt SqsPE.Arn
+              Condition: { ArnEquals: { aws:SourceArn: !Ref AppointmentsTopic } }
+
+    SqsCLPolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues: [ !Ref SqsCL ]
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal: { Service: sns.amazonaws.com }
+              Action: sqs:SendMessage
+              Resource: !GetAtt SqsCL.Arn
+              Condition: { ArnEquals: { aws:SourceArn: !Ref AppointmentsTopic } }
+
+    CompletedRule:
+      Type: AWS::Events::Rule
+      Properties:
+        EventBusName: default
+        EventPattern:
+          source: [ "app.appointments.worker" ]
+          detail-type: [ "AppointmentScheduled" ]
+          detail: { status: [ "completed" ] }
+        Targets:
+          - { Arn: !GetAtt SqsStatus.Arn, Id: target-status }
+
+    SqsStatusPolicy:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues: [ !Ref SqsStatus ]
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal: { Service: events.amazonaws.com }
+              Action: sqs:SendMessage
+              Resource: !GetAtt SqsStatus.Arn
+              Condition: { ArnEquals: { aws:SourceArn: !GetAtt CompletedRule.Arn } }
