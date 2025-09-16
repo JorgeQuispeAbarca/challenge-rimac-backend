@@ -1,13 +1,26 @@
-// Repositorio RDS (stub). Implementar con mysql2/RDS Proxy cuando se configure.
-// Mantiene la firma para que los workers puedan llamarlo.
+import { getPool } from "./mysql.client.js";
 
-export async function insertAppointment(_input: {
+export async function insertAppointment(input: {
   appointmentId: string;
   createdAt: string;
   insuredId: string;
   scheduleId: number;
   countryISO: "PE" | "CL";
 }) {
-  // TODO: ejecutar INSERT idempotente (UNIQUE(appointmentId))
-  return;
+  const pool = await getPool();
+
+  const sql = `
+    INSERT INTO appointments
+      (appointment_id, created_at, insured_id, schedule_id, country_iso)
+    VALUES (?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      insured_id = VALUES(insured_id)`;
+
+  await pool.execute(sql, [
+    input.appointmentId,
+    new Date(input.createdAt),
+    input.insuredId,
+    input.scheduleId,
+    input.countryISO
+  ]);
 }

@@ -1,6 +1,15 @@
 service: challenge-rimac-backend
 frameworkVersion: "4"
 
+configValidationMode: error
+
+build:
+  esbuild:
+    target: node20
+    platform: node
+    sourcemap: true
+    minify: false
+
 provider:
   name: aws
   runtime: nodejs20.x
@@ -40,6 +49,11 @@ provider:
           Action: events:PutEvents
           Resource: "*"
 
+# Empaqueta SOLO el spec en docs/openapi.yml
+package:
+  patterns:
+    - docs/openapi.yml
+
 functions:
   appointment:
     handler: src/functions/appointment/handler.handler
@@ -70,6 +84,16 @@ functions:
           batchSize: 10
           maximumBatchingWindow: 5
 
+  docs:
+    handler: src/functions/docs/handler.handler
+    events:
+      - httpApi:
+          method: GET
+          path: /docs
+      - httpApi:
+          method: GET
+          path: /openapi.yml
+
 resources:
   Resources:
     AppointmentsTable:
@@ -96,7 +120,6 @@ resources:
       Properties:
         TopicName: appointments-topic
 
-    # ⬇️ Logical IDs alfanuméricos (nombres reales conservan SQS_PE / SQS_CL / SQS_STATUS)
     SqsPE:
       Type: AWS::SQS::Queue
       Properties:
