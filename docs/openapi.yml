@@ -1,0 +1,209 @@
+openapi: 3.0.3
+info:
+  title: Reto Rímac Backend – Appointments API
+  version: 1.0.0
+  description: |
+    API para registrar y consultar agendamientos de citas de asegurados.
+    - **POST /appointments**: Crea un agendamiento de forma asíncrona. Persiste en DynamoDB con `status="pending"` y publica un evento a SNS (fan-out por `countryISO`).
+    - **GET /appointments/{insuredId}**: Lista los agendamientos por asegurado. Tras el procesamiento asíncrono (workers + EventBridge), el `status` pasa a `"completed"`.
+
+servers:
+  - url: https://xu0ky6js36.execute-api.us-east-1.amazonaws.com
+
+tags:
+  - name: Appointments
+    description: Operaciones sobre agendamientos
+
+paths:
+  /appointments:
+    post:
+      tags:
+        - Appointments
+      operationId: createAppointment
+      summary: Registrar agendamiento (asíncrono)
+      description: |
+        Registra un agendamiento con estado inicial `pending` y publica el evento a SNS.
+        El procesamiento posterior (inserción opcional en MySQL y emisión a EventBridge) es asíncrono.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAppointmentRequest'
+            examples:
+              pe:
+                summary: Ejemplo Perú (PE)
+                value:
+                  insuredId: '01234'
+                  scheduleId: 100
+                  countryISO: PE
+              cl:
+                summary: Ejemplo Chile (CL)
+                value:
+                  insuredId: '54321'
+                  scheduleId: 200
+                  countryISO: CL
+      responses:
+        '202':
+          description: Aceptado. La cita quedó registrada con `status="pending"`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAppointmentResponse'
+              examples:
+                accepted:
+                  value:
+                    appointmentId: bf526c5a-6bdd-4f1a-8f3a-6c0d3be4117e
+                    status: pending
+                    message: Agendamiento en proceso
+        '400':
+          description: Error de validación del cuerpo de la petición.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /appointments/{insuredId}:
+    get:
+      tags:
+        - Appointments
+      operationId: listAppointmentsByInsured
+      summary: Listar agendamientos por asegurado
+      parameters:
+        - $ref: '#/components/parameters/InsuredIdParam'
+      responses:
+        '200':
+          description: Lista de agendamientos del asegurado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AppointmentItem'
+              examples:
+                sample:
+                  value:
+                    items:
+                      - appointmentId: bf526c5a-6bdd-4f1a-8f3a-6c0d3be4117e
+                        insuredId: '01234'
+                        scheduleId: 100
+                        countryISO: PE
+                        status: completed
+                        createdAt: '2025-09-15T06:40:09.092Z'
+        '400':
+          description: Parámetro `insuredId` inválido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  parameters:
+    InsuredIdParam:
+      name: insuredId
+      in: path
+      required: true
+      description: Identificador del asegurado (5 dígitos).
+      schema:
+        type: string
+        pattern: ^[0-9]{5}$
+        example: '01234'
+
+  schemas:
+    # === Requests/Responses ===
+    CreateAppointmentRequest:
+      type: object
+      required:
+        - insuredId
+        - scheduleId
+        - countryISO
+      properties:
+        insuredId:
+          type: string
+          description: Identificador del asegurado (5 dígitos).
+          pattern: ^[0-9]{5}$
+          example: '01234'
+        scheduleId:
+          type: integer
+          description: Identificador de la franja/turno.
+          example: 100
+        countryISO:
+          type: string
+          description: País de atención (código ISO del reto).
+          enum:
+            - PE
+            - CL
+          example: PE
+
+    CreateAppointmentResponse:
+      type: object
+      properties:
+        appointmentId:
+          type: string
+          format: uuid
+          description: Identificador único del agendamiento.
+          example: bf526c5a-6bdd-4f1a-8f3a-6c0d3be4117e
+        status:
+          type: string
+          description: Estado inicial del agendamiento.
+          enum:
+            - pending
+          example: pending
+        message:
+          type: string
+          example: Agendamiento en proceso
+
+    AppointmentItem:
+      type: object
+      properties:
+        appointmentId:
+          type: string
+          format: uuid
+        insuredId:
+          type: string
+          pattern: ^[0-9]{5}$
+        scheduleId:
+          type: integer
+        countryISO:
+          type: string
+          enum:
+            - PE
+            - CL
+        status:
+          type: string
+          enum:
+            - pending
+            - completed
+        createdAt:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          example: El campo insuredId no cumple el patrón ^[0-9]{5}$
+        details:
+          description: Campos adicionales con información del error (si aplica).
+          oneOf:
+            - type: object
+            - type: array
