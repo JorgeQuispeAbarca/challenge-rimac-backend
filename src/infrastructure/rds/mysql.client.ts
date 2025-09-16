@@ -1,26 +1,26 @@
 import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm";
 
-// ✅ No importamos tipos de mysql2 (evita que el bundler lo incluya en init)
 export function isDbConfigured(): boolean {
   return Boolean(
     process.env.RDS_PROXY_ENDPOINT &&
-    process.env.RDS_DB_NAME &&
-    process.env.RDS_USER_PARAM &&
-    process.env.RDS_PWD_PARAM
+      process.env.RDS_DB_NAME &&
+      process.env.RDS_USER_PARAM &&
+      process.env.RDS_PWD_PARAM
   );
 }
 
 const ssm = new SSMClient({});
 
 async function getParam(name: string) {
-  const out = await ssm.send(new GetParameterCommand({ Name: name, WithDecryption: true }));
+  const out = await ssm.send(
+    new GetParameterCommand({ Name: name, WithDecryption: true })
+  );
   if (!out.Parameter?.Value) throw new Error(`SSM param not found: ${name}`);
   return out.Parameter.Value;
 }
 
 let pool: any | undefined;
 
-// Carga dinámica de mysql2 SOLO cuando se necesita
 async function loadMysql(): Promise<any> {
   const mod = await import("mysql2/promise");
   return (mod as any).default ?? mod;
@@ -36,7 +36,7 @@ export async function getPool(): Promise<any> {
     Promise.resolve(process.env.RDS_PROXY_ENDPOINT!),
     Promise.resolve(process.env.RDS_DB_NAME!),
     getParam(process.env.RDS_USER_PARAM!),
-    getParam(process.env.RDS_PWD_PARAM!)
+    getParam(process.env.RDS_PWD_PARAM!),
   ]);
 
   const mysql = await loadMysql();
@@ -48,7 +48,7 @@ export async function getPool(): Promise<any> {
     waitForConnections: true,
     connectionLimit: 2,
     maxIdle: 2,
-    idleTimeout: 60_000
+    idleTimeout: 60_000,
   });
 
   return pool;

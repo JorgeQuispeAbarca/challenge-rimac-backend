@@ -5,12 +5,15 @@ import type {
   SQSRecord,
 } from "aws-lambda";
 
-// Mock flexible de HTTP API v2
-// Soporta dos firmas:
-// - httpEvent("GET" | "POST", path, body?)
-// - httpEvent({ rawPath, requestContext?, body? })
 export function httpEvent(
-  methodOrOpts: "GET" | "POST" | { rawPath?: string; requestContext?: Partial<APIGatewayEventRequestContextV2>; body?: any },
+  methodOrOpts:
+    | "GET"
+    | "POST"
+    | {
+        rawPath?: string;
+        requestContext?: Partial<APIGatewayEventRequestContextV2>;
+        body?: any;
+      },
   path?: string,
   payload?: any
 ): APIGatewayProxyEventV2 {
@@ -23,14 +26,20 @@ export function httpEvent(
     apiId: "api",
     domainName: "example.com",
     domainPrefix: "example",
-    http: { method, path: p, protocol: "HTTP/1.1", sourceIp: "127.0.0.1", userAgent: "jest" },
+    http: {
+      method,
+      path: p,
+      protocol: "HTTP/1.1",
+      sourceIp: "127.0.0.1",
+      userAgent: "jest",
+      ...(override as any)?.http,
+    },
     requestId: "req-1",
     routeKey: "$default",
     stage: "$default",
     time: new Date().toISOString(),
     timeEpoch: Date.now(),
     ...(override as any),
-    http: { method, path: p, protocol: "HTTP/1.1", sourceIp: "127.0.0.1", userAgent: "jest", ...(override as any)?.http },
   });
 
   if (typeof methodOrOpts === "string") {
@@ -53,7 +62,9 @@ export function httpEvent(
   }
 
   const rawPath = methodOrOpts.rawPath ?? "/";
-  const rc = methodOrOpts.requestContext as Partial<APIGatewayEventRequestContextV2> | undefined;
+  const rc = methodOrOpts.requestContext as
+    | Partial<APIGatewayEventRequestContextV2>
+    | undefined;
   const body = methodOrOpts.body;
   return {
     version: "2.0",
@@ -61,7 +72,11 @@ export function httpEvent(
     rawPath,
     rawQueryString: "",
     headers: { "content-type": "application/json" },
-    requestContext: makeCtx((rc?.http as any)?.method ?? "GET", (rc?.http as any)?.path ?? rawPath, rc),
+    requestContext: makeCtx(
+      (rc?.http as any)?.method ?? "GET",
+      (rc?.http as any)?.path ?? rawPath,
+      rc
+    ),
     isBase64Encoded: false,
     body: body != null ? JSON.stringify(body) : undefined,
     pathParameters: undefined,
@@ -71,19 +86,20 @@ export function httpEvent(
   };
 }
 
-// Mock de SQS (records cuyo body es un envelope SNS)
-// Acepta entradas tipo { Message } o { payload } o un objeto plano (que será el Message)
-export function sqsFromSns(messages: Array<{ Message?: any; payload?: any } | any>): SQSEvent {
+export function sqsFromSns(
+  messages: Array<{ Message?: any; payload?: any } | any>
+): SQSEvent {
   const records: SQSRecord[] = messages.map((m, i) => {
-    const message = (m && typeof m === "object" && "Message" in m)
-      ? (m as any).Message
-      : (m && typeof m === "object" && "payload" in m)
+    const message =
+      m && typeof m === "object" && "Message" in m
+        ? (m as any).Message
+        : m && typeof m === "object" && "payload" in m
         ? (m as any).payload
         : m;
 
     const envelope = { Message: message };
 
-    return ({
+    return {
       messageId: `m-${i + 1}`,
       receiptHandle: `rh-${i + 1}`,
       body: JSON.stringify(envelope),
@@ -98,7 +114,7 @@ export function sqsFromSns(messages: Array<{ Message?: any; payload?: any } | an
       eventSource: "aws:sqs",
       eventSourceARN: "arn:aws:sqs:us-east-1:123456789012:queue",
       awsRegion: "us-east-1",
-    }) as any;
+    } as any;
   });
 
   return { Records: records } as SQSEvent;

@@ -40,7 +40,7 @@ describe("Appointment HTTP handler", () => {
   it("POST /appointment -> 400 con payload inválido", async () => {
     const res: any = await handler(
       httpEvent("POST", "/appointment", {
-        insuredId: "abcde", // inválido (no 5 dígitos)
+        insuredId: "abcde",
         scheduleId: 9,
         countryISO: "PE",
       }) as any
