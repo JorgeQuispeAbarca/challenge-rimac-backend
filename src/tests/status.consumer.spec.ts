@@ -12,7 +12,6 @@ await jest.unstable_mockModule(
   })
 );
 
-// Importa el handler HTTP/SQS real (usa parseStatusRecordBody real)
 const { handler: appointmentHandler } = await import(
   "../functions/appointment/handler.js"
 );

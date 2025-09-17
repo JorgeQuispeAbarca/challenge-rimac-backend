@@ -1,8 +1,8 @@
 export type Appointment = {
   appointmentId: string;
   createdAt: string;
-  insuredId: string; // EXACTO del PDF
-  scheduleId: number; // EXACTO del PDF
-  countryISO: "PE" | "CL"; // EXACTO del PDF
+  insuredId: string;
+  scheduleId: number;
+  countryISO: "PE" | "CL";
   status: "pending" | "completed";
 };

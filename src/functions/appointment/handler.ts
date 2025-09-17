@@ -11,7 +11,6 @@ import { parseStatusRecordBody } from "../../infrastructure/messaging/sqs.status
 export const handler = async (
   event: any
 ): Promise<APIGatewayProxyResultV2 | void> => {
-  // Invocación por SQS_STATUS (EventBridge -> SQS -> appointment)
   if (event?.Records?.[0]?.eventSource === "aws:sqs") {
     return handleStatusSQS(event as SQSEvent);
   }
@@ -38,7 +37,7 @@ async function handlePost(event: any): Promise<APIGatewayProxyResultV2> {
       issues: parsed.error.issues,
     });
 
-  const { insuredId, scheduleId, countryISO } = parsed.data; // EXACTOS
+  const { insuredId, scheduleId, countryISO } = parsed.data;
   const appointmentId = uuidv4();
   const createdAt = new Date().toISOString();
 
